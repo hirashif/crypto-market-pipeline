@@ -1,0 +1,104 @@
+# go services. local images so: kind load + imagePullPolicy IfNotPresent
+# env points at kafka/redis services by name (same as compose)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingester
+  labels: { app: ingester }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ingester }
+  template:
+    metadata:
+      labels: { app: ingester }
+    spec:
+      containers:
+        - name: ingester
+          image: crypto-market-pipeline-ingester:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: KAFKA_BROKERS, value: "kafka:9092" }
+            - { name: SYMBOLS, value: "BTC-USD,ETH-USD,SOL-USD" }
+            - { name: METRICS_ADDR, value: ":2112" }
+          livenessProbe:
+            httpGet: { path: /healthz, port: 2112 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processor
+  labels: { app: processor }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: processor }
+  template:
+    metadata:
+      labels: { app: processor }
+    spec:
+      containers:
+        - name: processor
+          image: crypto-market-pipeline-processor:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: KAFKA_BROKERS, value: "kafka:9092" }
+            - { name: REDIS_ADDR, value: "redis:6379" }
+            - { name: METRICS_ADDR, value: ":2112" }
+          livenessProbe:
+            httpGet: { path: /healthz, port: 2112 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels: { app: api }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: api }
+  template:
+    metadata:
+      labels: { app: api }
+    spec:
+      containers:
+        - name: api
+          image: crypto-market-pipeline-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: REDIS_ADDR, value: "redis:6379" }
+            - { name: HTTP_ADDR, value: ":8080" }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "25m", memory: "32Mi" }
+            limits: { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector: { app: api }
+  ports:
+    - port: 8080
+      targetPort: 8080

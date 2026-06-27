@@ -1,0 +1,8 @@
+/bin/
+*.log
+.env
+.DS_Store
+kubeconfig
+deploy/terraform/.terraform/
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.*
