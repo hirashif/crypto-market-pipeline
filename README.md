@@ -58,6 +58,28 @@ provisioned with Terraform in [`deploy/terraform`](deploy/terraform). _(Built ou
 GitHub Actions ([`.github/workflows`](.github/workflows)): `go test` → build images → push to
 GitHub Container Registry (ghcr.io) → deploy to the cluster.
 
+## Design notes
+A few decisions worth calling out, and the tradeoffs behind them.
+
+**Three services instead of one.** Ingesting from a websocket, writing to a datastore, and serving reads have different scaling and failure profiles, so they are split into `ingester`, `processor`, and `api` with Kafka as the buffer between ingest and processing. A burst of ticks or a slow consumer never backs up into the websocket read loop, and the read path shares nothing with the write path except Redis.
+
+**Kafka keyed by symbol.** The ingester partitions on `product_id` (a hash balancer), so all ticks for a symbol land on the same partition and stay ordered. Ordering is per-symbol, which is all that matters for a price feed; there is no need for a global order across symbols.
+
+**Redis data model.** The processor pipelines its writes per tick into one round trip:
+- `price:<symbol>` (hash) holds the latest price and timestamp, overwritten each tick.
+- `symbols` (set) tracks which symbols exist, so the api can list them without scanning keys.
+- `history:<symbol>` (list) keeps the last 100 prices with `LPUSH` + `LTRIM`, a cheap rolling window that never grows unbounded.
+
+**Delivery is at-least-once.** The processor reads with a Kafka consumer group and commits offsets after writing. On a crash and redelivery the latest-price hash is fine because `HSET` is idempotent, but the history list could pick up a duplicate. That is an acceptable tradeoff for a price feed; if it were not, I would dedup on a per-message sequence id.
+
+**Built to scale sideways.** The ingester reconnects with backoff on any websocket or Kafka error. All three services expose Prometheus metrics and a `/healthz` endpoint (what the Kubernetes probes hit), and they are stateless, so they scale horizontally and restart cleanly. All state lives in Kafka and Redis.
+
+## What I'd do next
+- Run multiple ingesters (per exchange, or symbols sharded across instances) instead of a single websocket connection.
+- Sink history to a time-series store (Timescale/ClickHouse) for real analytics; Redis only holds the hot window today.
+- Add Redis replication and a multi-broker Kafka to remove the single points of failure in the demo setup.
+- Add auth and rate limiting on the api.
+
 ## Layout
 ```
 cmd/{ingester,processor,api}   service entrypoints
