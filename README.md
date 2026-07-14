@@ -1,9 +1,11 @@
 # crypto-market-pipeline
 
+[![ci](https://github.com/hirashif/crypto-market-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/hirashif/crypto-market-pipeline/actions/workflows/ci.yml)
+
 A real-time cryptocurrency **market-data pipeline**: Go microservices that ingest live
 exchange ticks over WebSockets, stream them through **Kafka**, cache them in **Redis**, and
-serve them over a **REST API** — containerized with **Docker**, orchestrated on **Kubernetes**
-(local [kind] / **Azure AKS**), provisioned with **Terraform**, shipped via **GitHub Actions**
+serve them over a **REST API**. Containerized with **Docker**, orchestrated on **Kubernetes**
+(local kind / **Azure AKS**), provisioned with **Terraform**, shipped via **GitHub Actions**
 CI/CD, and instrumented with **Prometheus/Grafana**.
 
 ```mermaid
@@ -51,9 +53,17 @@ make down               # tear down
 | `GET /healthz`                 | Liveness probe                           |
 | `GET /metrics`                 | Prometheus metrics                       |
 
+```bash
+$ curl -s localhost:8080/prices/BTC-USD
+{"symbol":"BTC-USD","price":106842.15,"time":"2026-07-14T19:04:11.512Z"}
+
+$ curl -s localhost:8080/prices/BTC-USD/history
+{"symbol":"BTC-USD","prices":[106842.15,106841.9,106839.77]}
+```
+
 ## Kubernetes
 Manifests live in [`deploy/k8s`](deploy/k8s). Local cluster via `kind`; cloud via **Azure AKS**
-provisioned with Terraform in [`deploy/terraform`](deploy/terraform). _(Built out in phases — see repo history.)_
+provisioned with Terraform in [`deploy/terraform`](deploy/terraform). _(built out in phases, see repo history)_
 
 ## CI/CD
 GitHub Actions ([`.github/workflows`](.github/workflows)): `go test` → build images → push to
