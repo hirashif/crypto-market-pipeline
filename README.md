@@ -43,12 +43,13 @@ make down               # tear down
 ```
 
 ## API
-| Method / path          | Description                       |
-|------------------------|-----------------------------------|
-| `GET /prices`          | Latest price for every symbol     |
-| `GET /prices/{symbol}` | Latest price for one symbol       |
-| `GET /healthz`         | Liveness probe                    |
-| `GET /metrics`         | Prometheus metrics                |
+| Method / path                  | Description                              |
+|--------------------------------|------------------------------------------|
+| `GET /prices`                  | Latest price for every symbol            |
+| `GET /prices/{symbol}`         | Latest price for one symbol              |
+| `GET /prices/{symbol}/history` | Last 100 prices, most recent first       |
+| `GET /healthz`                 | Liveness probe                           |
+| `GET /metrics`                 | Prometheus metrics                       |
 
 ## Kubernetes
 Manifests live in [`deploy/k8s`](deploy/k8s). Local cluster via `kind`; cloud via **Azure AKS**

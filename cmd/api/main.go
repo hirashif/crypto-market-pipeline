@@ -27,6 +27,11 @@ type priceResp struct {
 	Time   string  `json:"time"`
 }
 
+type historyResp struct {
+	Symbol string    `json:"symbol"`
+	Prices []float64 `json:"prices"` // most recent first
+}
+
 func main() {
 	addr := obs.Env("HTTP_ADDR", ":8080")
 	rdb := redis.NewClient(&redis.Options{Addr: obs.Env("REDIS_ADDR", "localhost:6379")})
@@ -62,6 +67,27 @@ func main() {
 		}
 		writeJSON(w, p)
 		httpRequests.WithLabelValues("/prices/{symbol}", "200").Inc()
+	})
+
+	// rolling window the processor keeps in redis (last 100 ticks)
+	mux.HandleFunc("GET /prices/{symbol}/history", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		symbol := r.PathValue("symbol")
+		raw, err := rdb.LRange(ctx, "history:"+symbol, 0, -1).Result()
+		if err != nil || len(raw) == 0 {
+			httpRequests.WithLabelValues("/prices/{symbol}/history", "404").Inc()
+			http.Error(w, "no history for symbol", http.StatusNotFound)
+			return
+		}
+		prices := make([]float64, 0, len(raw))
+		for _, v := range raw {
+			if p, err := strconv.ParseFloat(v, 64); err == nil {
+				prices = append(prices, p)
+			}
+		}
+		writeJSON(w, historyResp{Symbol: symbol, Prices: prices})
+		httpRequests.WithLabelValues("/prices/{symbol}/history", "200").Inc()
 	})
 
 	log.Printf("[api] listening on %s", addr)
