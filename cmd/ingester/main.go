@@ -32,6 +32,19 @@ type tickerMsg struct {
 	Time      string `json:"time"`
 }
 
+// raw ws message -> trade, false if its not a usable tick
+func parseTick(raw []byte) (trade.Trade, bool) {
+	var m tickerMsg
+	if err := json.Unmarshal(raw, &m); err != nil || m.Type != "ticker" {
+		return trade.Trade{}, false
+	}
+	price, err := strconv.ParseFloat(m.Price, 64)
+	if err != nil {
+		return trade.Trade{}, false
+	}
+	return trade.Trade{Symbol: m.ProductID, Price: price, Time: m.Time}, true
+}
+
 func main() {
 	brokers := strings.Split(obs.Env("KAFKA_BROKERS", "localhost:9092"), ",")
 	symbols := strings.Split(obs.Env("SYMBOLS", "BTC-USD,ETH-USD,SOL-USD"), ",")
@@ -78,21 +91,17 @@ func stream(writer *kafka.Writer, symbols []string) error {
 		if err != nil {
 			return err
 		}
-		var m tickerMsg
-		if err := json.Unmarshal(raw, &m); err != nil || m.Type != "ticker" {
+		t, ok := parseTick(raw)
+		if !ok {
 			continue
 		}
-		price, err := strconv.ParseFloat(m.Price, 64)
-		if err != nil {
-			continue
-		}
-		val, _ := json.Marshal(trade.Trade{Symbol: m.ProductID, Price: price, Time: m.Time})
+		val, _ := json.Marshal(t)
 		if err := writer.WriteMessages(context.Background(), kafka.Message{
-			Key:   []byte(m.ProductID),
+			Key:   []byte(t.Symbol),
 			Value: val,
 		}); err != nil {
 			return err
 		}
-		ticksPublished.WithLabelValues(m.ProductID).Inc()
+		ticksPublished.WithLabelValues(t.Symbol).Inc()
 	}
 }
