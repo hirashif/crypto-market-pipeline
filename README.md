@@ -89,7 +89,7 @@ A few decisions worth calling out, and the tradeoffs behind them.
 - Run multiple ingesters (per exchange, or symbols sharded across instances) instead of a single websocket connection.
 - Sink history to a time-series store (Timescale/ClickHouse) for real analytics; Redis only holds the hot window today.
 - Add Redis replication and a multi-broker Kafka to remove the single points of failure in the demo setup.
-- Add auth and rate limiting on the api.
+- Add auth on the api (rate limiting is in).
 
 ## Layout
 ```

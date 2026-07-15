@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/time/rate"
 
 	"github.com/hirashif/crypto-market-pipeline/internal/obs"
 )
@@ -39,6 +40,21 @@ func timed(route string, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// public endpoint over redis, a scraper shouldnt be able to saturate it
+// global token bucket, plenty for a demo api (probes and /metrics skip this)
+var limiter = rate.NewLimiter(50, 100)
+
+func limited(route string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			httpRequests.WithLabelValues(route, "429").Inc()
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		h(w, r)
+	}
+}
+
 type priceResp struct {
 	Symbol string  `json:"symbol"`
 	Price  float64 `json:"price"`
@@ -60,7 +76,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("GET /prices", timed("/prices", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices", timed("/prices", limited("/prices", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		symbols, _ := rdb.SMembers(ctx, "symbols").Result()
@@ -72,9 +88,9 @@ func main() {
 		}
 		writeJSON(w, out)
 		httpRequests.WithLabelValues("/prices", "200").Inc()
-	}))
+	})))
 
-	mux.HandleFunc("GET /prices/{symbol}", timed("/prices/{symbol}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices/{symbol}", timed("/prices/{symbol}", limited("/prices/{symbol}", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		p, err := readPrice(ctx, rdb, r.PathValue("symbol"))
@@ -85,10 +101,10 @@ func main() {
 		}
 		writeJSON(w, p)
 		httpRequests.WithLabelValues("/prices/{symbol}", "200").Inc()
-	}))
+	})))
 
 	// rolling window the processor keeps in redis (last 100 ticks)
-	mux.HandleFunc("GET /prices/{symbol}/history", timed("/prices/{symbol}/history", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices/{symbol}/history", timed("/prices/{symbol}/history", limited("/prices/{symbol}/history", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		symbol := r.PathValue("symbol")
@@ -106,7 +122,7 @@ func main() {
 		}
 		writeJSON(w, historyResp{Symbol: symbol, Prices: prices})
 		httpRequests.WithLabelValues("/prices/{symbol}/history", "200").Inc()
-	}))
+	})))
 
 	// k8s sends sigterm on rollouts, finish in-flight requests before exiting
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
