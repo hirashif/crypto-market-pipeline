@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -60,20 +61,26 @@ func main() {
 	defer writer.Close()
 
 	log.Printf("[ingester] streaming %v from coinbase -> kafka %v", symbols, brokers)
+	backoff := time.Second
 	for {
-		// reconnect on any ws/kafka error
-		if err := stream(writer, symbols); err != nil {
-			log.Printf("[ingester] stream error: %v; reconnecting in 3s", err)
-			time.Sleep(3 * time.Second)
+		// reconnect on any ws/kafka error, back off so we dont hammer the feed
+		connected, err := stream(writer, symbols)
+		if connected {
+			backoff = time.Second // good session, start fresh
 		}
+		jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
+		log.Printf("[ingester] stream error: %v; reconnecting in %s", err, backoff+jitter)
+		time.Sleep(backoff + jitter)
+		backoff = min(backoff*2, 30*time.Second)
 	}
 }
 
 // one ws session, pumps ticks to kafka until it errors
-func stream(writer *kafka.Writer, symbols []string) error {
+// connected reports whether we ever got a live subscription (resets the backoff)
+func stream(writer *kafka.Writer, symbols []string) (bool, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(coinbaseWS, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.Close()
 
@@ -83,13 +90,13 @@ func stream(writer *kafka.Writer, symbols []string) error {
 		"channels":    []string{"ticker"},
 	}
 	if err := conn.WriteJSON(sub); err != nil {
-		return err
+		return false, err
 	}
 
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			return err
+			return true, err
 		}
 		t, ok := parseTick(raw)
 		if !ok {
@@ -100,7 +107,7 @@ func stream(writer *kafka.Writer, symbols []string) error {
 			Key:   []byte(t.Symbol),
 			Value: val,
 		}); err != nil {
-			return err
+			return true, err
 		}
 		ticksPublished.WithLabelValues(t.Symbol).Inc()
 	}
