@@ -24,6 +24,21 @@ var httpRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "api http requests by route and status",
 }, []string{"route", "status"})
 
+var httpDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "api_request_duration_seconds",
+	Help:    "api request latency by route",
+	Buckets: prometheus.DefBuckets,
+}, []string{"route"})
+
+// counters tell you traffic, histograms tell you percentiles
+func timed(route string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		h(w, r)
+		httpDuration.WithLabelValues(route).Observe(time.Since(start).Seconds())
+	}
+}
+
 type priceResp struct {
 	Symbol string  `json:"symbol"`
 	Price  float64 `json:"price"`
@@ -45,7 +60,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("GET /prices", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices", timed("/prices", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		symbols, _ := rdb.SMembers(ctx, "symbols").Result()
@@ -57,9 +72,9 @@ func main() {
 		}
 		writeJSON(w, out)
 		httpRequests.WithLabelValues("/prices", "200").Inc()
-	})
+	}))
 
-	mux.HandleFunc("GET /prices/{symbol}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices/{symbol}", timed("/prices/{symbol}", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		p, err := readPrice(ctx, rdb, r.PathValue("symbol"))
@@ -70,10 +85,10 @@ func main() {
 		}
 		writeJSON(w, p)
 		httpRequests.WithLabelValues("/prices/{symbol}", "200").Inc()
-	})
+	}))
 
 	// rolling window the processor keeps in redis (last 100 ticks)
-	mux.HandleFunc("GET /prices/{symbol}/history", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /prices/{symbol}/history", timed("/prices/{symbol}/history", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		symbol := r.PathValue("symbol")
@@ -91,7 +106,7 @@ func main() {
 		}
 		writeJSON(w, historyResp{Symbol: symbol, Prices: prices})
 		httpRequests.WithLabelValues("/prices/{symbol}/history", "200").Inc()
-	})
+	}))
 
 	// k8s sends sigterm on rollouts, finish in-flight requests before exiting
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
