@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -90,9 +93,23 @@ func main() {
 		httpRequests.WithLabelValues("/prices/{symbol}/history", "200").Inc()
 	})
 
-	log.Printf("[api] listening on %s", addr)
+	// k8s sends sigterm on rollouts, finish in-flight requests before exiting
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
-	log.Fatal(srv.ListenAndServe())
+	go func() {
+		log.Printf("[api] listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[api] server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Printf("[api] shutting down")
+	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
 }
 
 func readPrice(ctx context.Context, rdb *redis.Client, symbol string) (priceResp, error) {

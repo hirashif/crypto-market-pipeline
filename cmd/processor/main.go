@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -37,11 +40,18 @@ func main() {
 	})
 	defer reader.Close()
 
-	ctx := context.Background()
+	// k8s sends sigterm on rollouts, drain instead of dying mid-write
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	log.Printf("[processor] consuming %q from %v -> redis %s", trade.Topic, brokers, rdb.Options().Addr)
 	for {
 		m, err := reader.ReadMessage(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				log.Printf("[processor] shutting down")
+				return
+			}
 			log.Printf("[processor] read error: %v", err)
 			time.Sleep(time.Second)
 			continue

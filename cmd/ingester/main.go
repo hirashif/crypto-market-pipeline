@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"log"
 	"math/rand"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -47,6 +50,10 @@ func parseTick(raw []byte) (trade.Trade, bool) {
 }
 
 func main() {
+	// k8s sends sigterm on rollouts, drain instead of dying mid-write
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	brokers := strings.Split(obs.Env("KAFKA_BROKERS", "localhost:9092"), ",")
 	symbols := strings.Split(obs.Env("SYMBOLS", "BTC-USD,ETH-USD,SOL-USD"), ",")
 	obs.ServeMetrics(obs.Env("METRICS_ADDR", ":2112"))
@@ -64,25 +71,37 @@ func main() {
 	backoff := time.Second
 	for {
 		// reconnect on any ws/kafka error, back off so we dont hammer the feed
-		connected, err := stream(writer, symbols)
+		connected, err := stream(ctx, writer, symbols)
+		if ctx.Err() != nil {
+			log.Printf("[ingester] shutting down")
+			return
+		}
 		if connected {
 			backoff = time.Second // good session, start fresh
 		}
 		jitter := time.Duration(rand.Int63n(int64(backoff / 2)))
 		log.Printf("[ingester] stream error: %v; reconnecting in %s", err, backoff+jitter)
-		time.Sleep(backoff + jitter)
+		select {
+		case <-time.After(backoff + jitter):
+		case <-ctx.Done():
+			log.Printf("[ingester] shutting down")
+			return
+		}
 		backoff = min(backoff*2, 30*time.Second)
 	}
 }
 
-// one ws session, pumps ticks to kafka until it errors
+// one ws session, pumps ticks to kafka until it errors or ctx is cancelled
 // connected reports whether we ever got a live subscription (resets the backoff)
-func stream(writer *kafka.Writer, symbols []string) (bool, error) {
+func stream(ctx context.Context, writer *kafka.Writer, symbols []string) (bool, error) {
 	conn, _, err := websocket.DefaultDialer.Dial(coinbaseWS, nil)
 	if err != nil {
 		return false, err
 	}
 	defer conn.Close()
+	// unblocks ReadMessage when we get told to shut down
+	unhook := context.AfterFunc(ctx, func() { conn.Close() })
+	defer unhook()
 
 	sub := map[string]any{
 		"type":        "subscribe",
