@@ -22,6 +22,9 @@ flowchart LR
   P --> G["Grafana"]
 ```
 
+## Why I built this
+I got into crypto through a Bitcoin protocol class in college and I've been trading and following the markets since. Trading makes you care about market data quickly: you want live prices and recent history, and pulling them from someone else's dashboard gets old. So I built my own feed. It was also the excuse to learn the production streaming stack for real, Kafka for transport, Redis for hot reads, Kubernetes and Terraform to run it like a service instead of a script on my laptop. The history endpoint exists because that rolling window is the raw material for the signals I actually want to compute next.
+
 ## Stack
 Go · Apache Kafka · Redis · Docker · Kubernetes (kind / Azure AKS) · Terraform · GitHub Actions · Prometheus · Grafana
 
