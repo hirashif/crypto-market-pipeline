@@ -23,12 +23,12 @@ flowchart LR
 ```
 
 ## Why I built this
-Took a Bitcoin protocol class in college and have been trading since. I wanted my own price
-feed instead of reading someone else's dashboard, plus an excuse to actually use Kafka and
-Kubernetes rather than read about them. The history endpoint is there because I want to
-compute signals off that window next.
+I trade, so market data was something I actually wanted rather than a made up project. Figured
+building the whole path myself, ingester to Kafka to Redis to an API, would teach me more than
+reading about it would.
 
-<!-- TODO(shifan): rewrite this in your own words -->
+Cloud was the annoying part. Picked a VM size that couldn't schedule my pods, then hit an
+arm64/amd64 mismatch that only showed up once it was running in the cluster and never locally.
 
 
 ## Stack
