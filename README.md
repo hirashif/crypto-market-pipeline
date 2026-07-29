@@ -23,7 +23,13 @@ flowchart LR
 ```
 
 ## Why I built this
-I got into crypto through a Bitcoin protocol class in college and I've been trading and following the markets since. Trading makes you care about market data quickly: you want live prices and recent history, and pulling them from someone else's dashboard gets old. So I built my own feed. It was also the excuse to learn the production streaming stack for real, Kafka for transport, Redis for hot reads, Kubernetes and Terraform to run it like a service instead of a script on my laptop. The history endpoint exists because that rolling window is the raw material for the signals I actually want to compute next.
+Took a Bitcoin protocol class in college and have been trading since. I wanted my own price
+feed instead of reading someone else's dashboard, plus an excuse to actually use Kafka and
+Kubernetes rather than read about them. The history endpoint is there because I want to
+compute signals off that window next.
+
+<!-- TODO(shifan): rewrite this in your own words -->
+
 
 ## Stack
 Go · Apache Kafka · Redis · Docker · Kubernetes (kind / Azure AKS) · Terraform · GitHub Actions · Prometheus · Grafana
