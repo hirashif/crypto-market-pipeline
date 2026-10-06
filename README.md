@@ -90,7 +90,7 @@ A few decisions worth calling out, and the tradeoffs behind them.
 - `symbols` (set) tracks which symbols exist, so the api can list them without scanning keys.
 - `history:<symbol>` (list) keeps the last 100 prices with `LPUSH` + `LTRIM`, a cheap rolling window that never grows unbounded.
 
-**Delivery is at-least-once.** The processor reads with a Kafka consumer group and commits offsets after writing. On a crash and redelivery the latest-price hash is fine because `HSET` is idempotent, but the history list could pick up a duplicate. That is an acceptable tradeoff for a price feed; if it were not, I would dedup on a per-message sequence id.
+**Delivery is at-least-once.** The processor reads with a Kafka consumer group and commits an offset only after the Redis write for that tick has succeeded (`FetchMessage`, write, then `CommitMessages`). If Redis is down it retries the write instead of moving on, because committing a later offset would cover the skipped tick too. On a crash and redelivery the latest-price hash is fine because `HSET` is idempotent, but the history list could pick up a duplicate. That is an acceptable tradeoff for a price feed; if it were not, I would dedup on a per-message sequence id.
 
 **Built to scale sideways.** The ingester reconnects with backoff on any websocket or Kafka error. All three services expose Prometheus metrics and a `/healthz` endpoint (what the Kubernetes probes hit), and they are stateless, so they scale horizontally and restart cleanly. All state lives in Kafka and Redis.
 
